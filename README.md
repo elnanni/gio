@@ -5,27 +5,41 @@
 
 ## 📌 Descripción
 
-Este proyecto presenta una implementación de alto rendimiento para resolver el **Problema del Viajante de Comercio (TSP)**. Utiliza una arquitectura híbrida que combina **Inserción Geométrica Adaptativa** con un **Escaneo de Horizonte** basado en proyecciones vectoriales.
+Este proyecto presenta una implementación de alto rendimiento para resolver el **Problema del Viajante de Comercio (TSP)**. Utiliza una combinación de **ordenación geométrica inspirada en ADN**, **inserción geométrica adaptativa** y **relajación topológica** para construir rutas de alta calidad.
 
-A diferencia de las heurísticas clásicas de "Vecino más Cercano", este motor prioriza la estructura global del mapa para evitar cruces prematuros y optimizar la topología de la ruta desde el primer nodo.
+El flujo principal del motor es:
+
+1. Cargar coordenadas TSPLIB desde `lector.py`.
+2. Reordenar las ciudades usando una perturbación del ángulo dorado en `acb_adn.py`.
+3. Explorar una alta resolución de parámetros (`phis` y `ratios`) para validar la Resonancia Geométrica del ADN.
+4. Evaluar rutas desde cada nodo inicial y refinar la topología con inserciones angulares y relajaciones locales/bloque.
+
+A diferencia de las heurísticas clásicas de "Vecino más Cercano", este motor prioriza la topología global y evita cruces prematuros desde la fase constructiva.
+
+> ⚠️ AVISO: La configuración actual utiliza una búsqueda en malla de alta resolución (360 Phis x 357 Ratios x nodos iniciales). Esto está pensado para la validación científica de la Resonancia Geométrica del ADN. Para aproximaciones rápidas en mapas grandes, reduce la resolución de `np.linspace(...)` en `acb_adn.py`.
 
 ---
 
 ## 🧠 Arquitectura del Motor
 
-El solver se divide en tres capas lógicas diseñadas para maximizar la precisión sin sacrificar la velocidad:
+El solver se apoya en tres componentes clave:
 
-### 1. Algoritmo GIO (Geometric Insertion Optimizer)
+### 1. Ordenación geométrica tipo ADN
 
-Es el núcleo de construcción de la ruta, caracterizado por:
+La función `reordenar_por_adn_geometrico` genera una permutación inicial de ciudades basada en un perturbador del ángulo dorado. Esta ordenación establece una base estructurada para la construcción de la ruta.
 
-- **Criterio de Inserción Suave:** Al insertar un nodo, el algoritmo no solo busca la distancia mínima, sino que penaliza ángulos agudos que puedan generar rutas "quebradas".
-- **KD-Tree Integration:** Uso de estructuras de datos espaciales para búsquedas de proximidad en O(log n).
-- **Relajación Local Híbrida:** Un proceso de refinamiento en caliente que re-evalúa la posición de los nodos recién insertados para corregir decisiones subóptimas de la fase constructiva.
+### 2. Inserción Geométrica Optimizada (GIO)
 
-### 2. Refinamiento 2-opt Light
+El núcleo de `acb_common.py` ejecuta la inserción de nodos siguiendo estos principios:
 
-Como paso final, se aplica un algoritmo **2-opt optimizado** con ventana local. Este proceso detecta y elimina cruces de líneas ("X"), "planchando" la ruta final para mejorar el costo sin disparar el tiempo de cómputo.
+- **Selección de candidatos basada en distancia y dirección.**
+- **KDTree para vecinos cercanos.**
+- **Penalización de ángulos agudos** para favorecer inserciones más suaves.
+- **Relajación local y por bloques** que corrige la topología tras cada expansión de la ruta.
+
+### 3. Evaluación y experimentación TSPLIB
+
+El módulo `evaluador.py` recorre instancias `.tsp`, ejecuta el solver y guarda los resultados en `resultados/tabla_final.csv`. Esto permite comparar el rendimiento en múltiples mapas y optimizar parámetros.
 
 ---
 
@@ -36,5 +50,9 @@ Este proyecto está bajo la licencia **GNU GPL v3**.
 > "La libertad de usar, estudiar, compartir y modificar el software."
 
 Cualquier trabajo derivado de este motor debe mantener la misma licencia y compartir sus mejoras con la comunidad.
+
+This project is licensed under the AGPLv3. If you wish to use GIO in a private commercial environment or without open-sourcing your code, you can request a commercial license by contacting: [elnanni@gmail.com](mailto:elnanni@gmail.com)
+
+Este proyecto está bajo la licencia AGPLv3. Si deseas utilizar GIO en un entorno comercial privado o sin abrir tu código fuente, puedes solicitar una licencia comercial escribiendo a: [elnanni@gmail.com](mailto:elnanni@gmail.com)
 
 **Copyright (C) 2026 jbenavides**

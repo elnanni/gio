@@ -1,5 +1,9 @@
-ejercicios/
 **/*.txt
 *.txt
+**/.png
+*.png
 __pycache__/
 localdocs/
+development/
+resultados/
+.DS_Store

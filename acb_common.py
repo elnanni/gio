@@ -7,8 +7,22 @@
 import numpy as np
 from sortedcontainers import SortedList
 
-def dist_tsplib(p1, p2):
-    return int(np.sqrt(np.sum((p1 - p2)**2)) + 0.5)
+class GIO_CONFIG:
+    UMBRAL_KDTREE = 200
+    K_VECINOS_INSERCION = 100
+    K_VECINOS_RELAJACION = 25
+    VENTANA_LOCAL = 4
+    MEMORIA_BLOQUE = 10
+    INICIO_RELAJACION_LOCAL = 6
+    INICIO_RELAJACION_BLOQUE = 15
+    FRECUENCIA_BLOQUE = 50
+    LIMITE_FASE_INICIAL = 50
+    UMBRAL_MAPA_GIGANTE = 7000
+    PASO_MAPA_GIGANTE = 5
+    ANGULO_AGUDO_MAX = 90
+    DIVISOR_PENALIZACION_LEVE = 1000.0
+    DIVISOR_DESEMPATE = 1000000.0
+    EPSILON = 1e-9
 
 def calcular_angulo_vec(v1, pt, v2):
     a = v1 - pt
@@ -23,36 +37,7 @@ def calcular_angulo_vec(v1, pt, v2):
         angles[np.isnan(angles)] = 180.0
     return angles
 
-def normalize(x):
-    x = np.asarray(x, dtype=float)
-    denom = np.max(x) - np.min(x)
-    if denom == 0:
-        return np.zeros_like(x)
-    return (x - np.min(x)) / (denom + 1e-9)
-
-def closeness(x, target):
-    x = np.asarray(x, dtype=float)
-    denom = max(target, 1.0 - target)
-    return np.clip(1.0 - np.abs(x - target) / (denom + 1e-9), 0.0, 1.0)
-
-def calcular_candidato_adn(dist_centro, angulos_locales, proximidad_relativa, var_ang_cands):
-    dist_n = normalize(dist_centro)
-    ang_n = normalize(angulos_locales)
-    prox_n = normalize(proximidad_relativa)
-    if var_ang_cands < 10000:
-        cand_dist = closeness(dist_n, 0.55)
-        cand_ang = closeness(ang_n, 0.45)
-        cand_prox = closeness(prox_n, 0.60)
-        return {
-            idx: 0.40 * cand_dist[idx] + 0.30 * cand_ang[idx] + 0.30 * cand_prox[idx]
-            for idx in range(len(dist_n))
-        }
-    return {
-        idx: 0.30 * dist_n[idx] + 0.25 * ang_n[idx] + 0.45 * (1.0 - prox_n[idx])
-        for idx in range(len(dist_n))
-    }
-
-def reordenar_por_adn_geometrico(ciudades_canonicas, offset, phi_perturb):
+def reordenar_por_adn_geometrico(ciudades_canonicas, phi_perturb):
     n = len(ciudades_canonicas)
     centro = np.mean(ciudades_canonicas, axis=0)
     vec_centro = ciudades_canonicas - centro
@@ -64,7 +49,7 @@ def reordenar_por_adn_geometrico(ciudades_canonicas, offset, phi_perturb):
     angulo_oro_base = 2 - phi
     angulo_oro = (angulo_oro_base + phi_perturb) % 1.0
     for i in range(n):
-        proyeccion_ideal = ((i + offset) * angulo_oro) % 1.0
+        proyeccion_ideal = ((i) * angulo_oro) % 1.0
         idx_sugerido = int(proyeccion_ideal * n)
         pos_in_list = disponibles.bisect_left(idx_sugerido)
         if pos_in_list >= len(disponibles):
@@ -93,24 +78,28 @@ def gio_seleccionar_nodo(ciudades, visitados_mask, d_min, inicio_idx, centro, ca
     idx = int(cands[np.argmax(dir_scores)]) if len(cands) > 1 else int(cands[0])
     return idx
 
-def gio_insertar_nodo(idx, ciudades, tree, deudas, es_inicial, sig, ant, n_actual):
+def gio_insertar_nodo(idx, ciudades, tree, deudas, es_inicial, sig, ant, n_actual, nodos_activos):
     pt = ciudades[idx]
-    if n_actual > 200:
-        _, ids_vecinos = tree.query(pt, k=min(n_actual, 100))
+    if n_actual > GIO_CONFIG.UMBRAL_KDTREE:
+        _, ids_vecinos = tree.query(pt, k=min(n_actual, GIO_CONFIG.K_VECINOS_INSERCION))
         v1_ids = ids_vecinos[sig[ids_vecinos] != -1]
     else:
-        v1_ids = np.where(sig != -1)[0]
+        activos_arr = np.array(nodos_activos)
+        v1_ids = activos_arr[sig[activos_arr] != -1]
     if len(v1_ids) == 0:
-        v1_ids = np.where(sig != -1)[0]
+        activos_arr = np.array(nodos_activos)
+        v1_ids = activos_arr[sig[activos_arr] != -1]
     v2_ids = sig[v1_ids]
     v1, v2 = ciudades[v1_ids], ciudades[v2_ids]
-    dist_v1_pt = np.sqrt(np.sum((v1 - pt)**2, axis=1))
-    dist_pt_v2 = np.sqrt(np.sum((pt - v2)**2, axis=1))
-    dist_v1_v2 = np.sqrt(np.sum((v1 - v2)**2, axis=1))
+    dist_v1_pt = np.floor(np.sqrt(np.sum((v1 - pt)**2, axis=1)) + 0.5)
+    dist_pt_v2 = np.floor(np.sqrt(np.sum((pt - v2)**2, axis=1)) + 0.5)
+    dist_v1_v2 = np.floor(np.sqrt(np.sum((v1 - v2)**2, axis=1)) + 0.5)
     inc_vec = dist_v1_pt + dist_pt_v2 - dist_v1_v2
     ang_vec = calcular_angulo_vec(v1, pt, v2)
-    penalizacion = np.where(ang_vec < 90, (90 - ang_vec)**2 / 50, (180 - ang_vec) / 1000)
-    best_idx = np.argmin(inc_vec + penalizacion)
+    penalizacion = np.where(ang_vec < GIO_CONFIG.ANGULO_AGUDO_MAX, (GIO_CONFIG.ANGULO_AGUDO_MAX - ang_vec)**2 / 50, (180 - ang_vec) / GIO_CONFIG.DIVISOR_PENALIZACION_LEVE)
+    costo_principal = inc_vec + penalizacion
+    criterio_secundario = -ang_vec / GIO_CONFIG.DIVISOR_DESEMPATE
+    best_idx = np.argmin(costo_principal + criterio_secundario)
     ganador_v1 = int(v1_ids[best_idx])
     ganador_v2 = int(v2_ids[best_idx])
     sig[ganador_v1] = idx
@@ -120,8 +109,20 @@ def gio_insertar_nodo(idx, ciudades, tree, deudas, es_inicial, sig, ant, n_actua
     if es_inicial: deudas.append(inc_vec[best_idx])
     return idx
 
-def gio_relajacion_local(nodo_centro, ciudades, es_bestia, sig, ant, tree):
-    ventana = 6 if es_bestia else 4
+def gio_relajacion_bloque(ciudades, indices_objetivo, sig, ant, tree, es_inicial, nodos_activos):
+    for idx in indices_objetivo:
+        v_ant = ant[idx]
+        v_sig = sig[idx]
+        if v_ant != -1 and v_sig != -1:
+            sig[v_ant] = v_sig
+            ant[v_sig] = v_ant
+            sig[idx] = -1
+            ant[idx] = -1
+    for idx in indices_objetivo:
+        gio_insertar_nodo(idx, ciudades, tree, [], es_inicial, sig, ant, len(ciudades), nodos_activos)
+
+def gio_relajacion_local(nodo_centro, ciudades, sig, ant, tree):
+    ventana = GIO_CONFIG.VENTANA_LOCAL
     nodos_a_revisar = []
     curr = nodo_centro
     for _ in range(ventana):
@@ -147,7 +148,7 @@ def gio_relajacion_local(nodo_centro, ciudades, es_bestia, sig, ant, tree):
             curr_i = ant[curr_i]
             curr_d = sig[curr_d]
             vecinos_topo.extend([curr_i, curr_d])
-        _, ids_geo = tree.query(pt_coords, k=25)
+        _, ids_geo = tree.query(pt_coords, k=GIO_CONFIG.K_VECINOS_RELAJACION)
         candidatos_v1 = np.unique(np.concatenate([vecinos_topo, ids_geo]))
         v1_ids = candidatos_v1[sig[candidatos_v1] != -1]
         if len(v1_ids) == 0:
@@ -158,13 +159,14 @@ def gio_relajacion_local(nodo_centro, ciudades, es_bestia, sig, ant, tree):
             continue
         v2_ids = sig[v1_ids]
         v1, v2 = ciudades[v1_ids], ciudades[v2_ids]
-        dist_v1_p = np.sqrt(np.sum((v1 - pt_coords)**2, axis=1))
-        dist_p_v2 = np.sqrt(np.sum((pt_coords - v2)**2, axis=1))
-        dist_v1_v2 = np.sqrt(np.sum((v1 - v2)**2, axis=1))
+        dist_v1_p = np.floor(np.sqrt(np.sum((v1 - pt_coords)**2, axis=1)) + 0.5)
+        dist_p_v2 = np.floor(np.sqrt(np.sum((pt_coords - v2)**2, axis=1)) + 0.5)
+        dist_v1_v2 = np.floor(np.sqrt(np.sum((v1 - v2)**2, axis=1)) + 0.5)
         inc = dist_v1_p + dist_p_v2 - dist_v1_v2
         ang = calcular_angulo_vec(v1, pt_coords, v2)
-        energia = inc - (ang / 1000.0)
-        best_idx = np.argmin(energia)
+        energia = inc - (ang / GIO_CONFIG.DIVISOR_PENALIZACION_LEVE)
+        desempate = -ang / GIO_CONFIG.DIVISOR_DESEMPATE
+        best_idx = np.argmin(energia + desempate)
         mejor_v1 = int(v1_ids[best_idx])
         mejor_v2 = int(v2_ids[best_idx])
         sig[mejor_v1] = p_idx
@@ -172,25 +174,7 @@ def gio_relajacion_local(nodo_centro, ciudades, es_bestia, sig, ant, tree):
         sig[p_idx] = mejor_v2
         ant[mejor_v2] = p_idx
 
-def apply_2opt(ruta, ciudades):
-    n = len(ruta)
-    mejor_ruta = ruta.copy()
-    for _ in range(2): 
-        cambio_realizado = False
-        for i in range(1, n - 2):
-            for j in range(i + 1, min(i + 50, n - 1)): 
-                A, B = mejor_ruta[i-1], mejor_ruta[i]
-                C, D = mejor_ruta[j], mejor_ruta[j+1]
-                dist_actual = dist_tsplib(ciudades[A], ciudades[B]) + dist_tsplib(ciudades[C], ciudades[D])
-                dist_nueva = dist_tsplib(ciudades[A], ciudades[C]) + dist_tsplib(ciudades[B], ciudades[D])
-                if dist_nueva < dist_actual:
-                    mejor_ruta[i:j+1] = mejor_ruta[i:j+1][::-1]
-                    cambio_realizado = True
-        if not cambio_realizado:
-            break
-    return mejor_ruta
-
-def geometric_insertion_optimizer(ciudades, inicio_idx, tree, centro, es_bestia, cands_ratio):
+def geometric_insertion_optimizer(ciudades, inicio_idx, tree, centro, cands_ratio):
     n = len(ciudades)
     sig = np.full(n, -1, dtype=int)
     ant = np.full(n, -1, dtype=int)
@@ -198,28 +182,35 @@ def geometric_insertion_optimizer(ciudades, inicio_idx, tree, centro, es_bestia,
     ant[inicio_idx] = inicio_idx
     visitados_mask = np.zeros(n, dtype=bool)
     visitados_mask[inicio_idx] = True
-    d_min = np.linalg.norm(ciudades - ciudades[inicio_idx], axis=1)
+    d_min = np.floor(np.linalg.norm(ciudades - ciudades[inicio_idx], axis=1) + 0.5)
     deudas = []
     n_actual = 1
+    ultimas_insertadas = []
+    nodos_activos = [inicio_idx] 
     for i in range(n - 1):
         idx = gio_seleccionar_nodo(ciudades, visitados_mask, d_min, inicio_idx, centro, cands_ratio)
         visitados_mask[idx] = True
+        ultimas_insertadas.append(idx)
+        if len(ultimas_insertadas) > GIO_CONFIG.MEMORIA_BLOQUE:
+            ultimas_insertadas.pop(0)
         pt = ciudades[idx]
-        d_min = np.minimum(d_min, np.linalg.norm(ciudades - pt, axis=1))
-        nodo_insertado = gio_insertar_nodo(idx, ciudades, tree, deudas, i < 50, sig, ant, n_actual)
+        dist_a_pt = np.floor(np.linalg.norm(ciudades - pt, axis=1) + 0.5)
+        d_min = np.minimum(d_min, dist_a_pt)
+        nodo_insertado = gio_insertar_nodo(idx, ciudades, tree, deudas, i < GIO_CONFIG.LIMITE_FASE_INICIAL, sig, ant, n_actual, nodos_activos)
+        nodos_activos.append(idx) 
         n_actual += 1
-        paso_frecuencia = 5 if n > 7000 else 1
-        if n_actual > 6 and (i % paso_frecuencia == 0):
-            gio_relajacion_local(nodo_insertado, ciudades, es_bestia, sig, ant, tree)
+        paso_frecuencia = GIO_CONFIG.PASO_MAPA_GIGANTE if n > GIO_CONFIG.UMBRAL_MAPA_GIGANTE else 1
+        if n_actual > GIO_CONFIG.INICIO_RELAJACION_LOCAL and (i % paso_frecuencia == 0):
+            gio_relajacion_local(nodo_insertado, ciudades, sig, ant, tree)
+        if n_actual > GIO_CONFIG.INICIO_RELAJACION_BLOQUE and n_actual % GIO_CONFIG.FRECUENCIA_BLOQUE == 0:
+            gio_relajacion_bloque(ciudades, ultimas_insertadas, sig, ant, tree, i < GIO_CONFIG.LIMITE_FASE_INICIAL, nodos_activos)
     ruta = []
     curr = inicio_idx
     for _ in range(n):
         ruta.append(int(curr))
         curr = sig[curr]
     ruta_arr = np.array(ruta)
-    if n < 50000: 
-        ruta_arr = apply_2opt(ruta_arr, ciudades)
     coords_ordenadas = ciudades[ruta_arr]
     siguiente_coords = ciudades[np.roll(ruta_arr, -1)]
     dist_total = int(np.sum(np.floor(np.sqrt(np.sum((coords_ordenadas - siguiente_coords)**2, axis=1)) + 0.5)).item())
-    return dist_total
+    return ruta_arr.tolist(), dist_total
