@@ -3,6 +3,9 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python: 3.7+](https://img.shields.io/badge/python-3.7+-green.svg)](https://www.python.org/)
 
+<img width="1600" height="1600" alt="gio_perfect_route" src="https://github.com/user-attachments/assets/de71d1f4-5908-48ab-a4a0-3fe7af4e552b" />
+
+
 ## 📌 Descripción
 
 Este proyecto presenta una implementación de alto rendimiento para resolver el **Problema del Viajante de Comercio (TSP)**. Utiliza una combinación de **ordenación geométrica inspirada en ADN**, **inserción geométrica adaptativa** y **relajación topológica** para construir rutas de alta calidad.
